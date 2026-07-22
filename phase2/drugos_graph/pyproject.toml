@@ -1,0 +1,156 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drugos-graph"
+version = "2.0.0"
+description = "DrugOS Knowledge Graph Construction & GNN Data Pipeline — Week 2"
+readme = "README.md"
+license = {text = "MIT"}
+# P2-065 ROOT FIX (Teammate 4): the previous ``requires-python = ">=3.10"``
+# was too permissive. The codebase uses ``from __future__ import annotations``
+# (PEP 563) which has DIFFERENT behavior between Python 3.10 and 3.12:
+#   - Python 3.10: PEP 563 is the default behavior for ``from __future__
+#     import annotations`` — annotations are strings, evaluated lazily.
+#   - Python 3.11+: same as 3.10 (PEP 563 still requires the future import).
+#   - Python 3.13+: PEP 649 (deferred evaluation) is the DEFAULT — no
+#     future import needed, and the behavior is slightly different
+#     (annotations are computed lazily via __annotations__ descriptor).
+#
+# The codebase was tested on Python 3.11 and 3.12 in CI. Python 3.10 has
+# subtle differences in:
+#   - typing.TypeAlias (added in 3.10 but with quirks)
+#   - match-case exhaustiveness checking
+#   - tomllib (added in 3.11 — pyproject.toml parsing fails on 3.10)
+#
+# ROOT FIX: bump the minimum to 3.11 (the lowest version actually tested
+# in CI). Cap the maximum at 3.12 to prevent 3.13's PEP 649 behavior
+# changes from silently breaking annotation-based runtime introspection
+# (e.g. pydantic v1, which the codebase still uses in some places).
+# When the codebase is fully tested on 3.13+, bump the upper cap.
+requires-python = ">=3.11,<3.13"
+authors = [
+    {name = "DrugOS Team"},
+]
+dependencies = [
+    "neo4j>=5.0,<6.0",
+    "pandas>=2.0,<3.0",
+    "networkx>=3.0,<4.0",
+    "numpy>=1.24,<3.0",
+    "torch>=2.0,<3.0",
+    "torch-geometric>=2.4,<3.0",
+    "torch-scatter>=2.1,<3.0",
+    "torch-sparse>=0.6,<1.0",
+    "scikit-learn>=1.3,<2.0",
+    "transformers>=4.30,<5.0",
+    "mlflow>=2.0,<3.0",
+    # v109 ROOT FIX (P2-017): added fastapi, uvicorn, pydantic, and
+    # python-multipart — the ``service.py`` FastAPI service could not
+    # start without them. ``pip install .`` previously produced a
+    # broken install (different from ``pip install -r requirements.txt``).
+    "fastapi>=0.109,<1.0",
+    "uvicorn[standard]>=0.27,<1.0",
+    "pydantic>=2.5,<3.0",
+    "python-multipart>=0.0.9,<1.0",
+    # Fixes audit issue 11.3 — Prometheus metrics in utils.py.
+    "prometheus-client>=0.20,<1.0",
+    # Fixes audit issue 12.1 — externalized label_map.yaml.
+    "pyyaml>=6.0,<7.0",
+    # v39 ROOT FIX (P2 #49): added psutil, certifi, backports.tarfile
+    # to match requirements.txt. The previous pyproject.toml was
+    # missing these deps, so ``pip install .`` produced a different
+    # install than ``pip install -r requirements.txt``. psutil is
+    # used by __main__._log_system_resources (RAM logging); certifi
+    # is used by the HTTP client for CA bundle verification;
+    # backports.tarfile is needed on Python < 3.12 for tarfile
+    # extraction security.
+    "psutil>=5.9",
+    "certifi>=2024.0",
+    'backports.tarfile; python_version < "3.12"',
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    # Fixes audit issue 10.9 — mutation testing (optional, slow CI job).
+    "mutmut>=3.0",
+    # Fixes audit issue 10.1 — property-based tests (optional).
+    "hypothesis>=6.0",
+]
+mol = [
+    "rdkit-pypi>=2023.3",
+]
+# GEO loader optional dependencies (GEO-15.6).
+# The GEO loader uses stdlib + pandas + numpy only (master prompt Rule R8).
+# This optional-dependencies block documents the version pinning for
+# reproducibility. No NEW third-party dependencies are added.
+# v39 ROOT FIX (P2 #50): the [geo] extra previously pinned numpy<2.0
+# while the main deps allow numpy<3.0. Installing ``drugos-graph[geo]``
+# would downgrade numpy from 2.x to 1.x, breaking any code that relies
+# on numpy 2.x APIs. The fix: align the [geo] extra's numpy pin with
+# the main deps (numpy>=1.24,<3.0). The original <2.0 pin was a
+# leftover from when numpy 2.0 was not yet stable; numpy 2.x is now
+# stable and supported by pandas 2.x.
+geo = [
+    "pandas>=2.0,<3.0",
+    "numpy>=1.24,<3.0",  # v39: aligned with main deps (was <2.0)
+]
+
+[tool.setuptools.packages.find]
+include = ["drugos_graph*"]
+
+[tool.setuptools.package-data]
+# Fixes audit issue 12.1, 13.6 — ship label_map.yaml and label_dictionary.md
+# with the package so external deployments can read them.
+drugos_graph = [
+    "py.typed",
+    "data/label_map.yaml",
+    "data/label_dictionary.md",
+    "compliance.md",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+# Fixes audit issue 14.2 — PEP 484 strict types enforced.
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+# prometheus_client stubs may be incomplete; relax strictness for that module.
+module = "prometheus_client.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# Fixes audit issue 13.7 — doctest support.
+addopts = "--strict-markers"
+doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
+testpaths = ["."]
+
+[tool.mutmut]
+# Fixes audit issue 10.9 — mutation testing configuration.
+# Run with: mutmut run --paths-to-mutate drugos_graph/utils.py
+paths_to_mutate = ["drugos_graph/utils.py"]
+tests_dir = "."
+

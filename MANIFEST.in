@@ -1,0 +1,45 @@
+# MANIFEST.in — ensures non-Python files ship with the package.
+# P4-003 ROOT FIX (Team Cosmic / Phase 4): the canonical
+# validated_hypotheses.csv ships in the rl/ directory, but without a
+# MANIFEST.in entry, `pip install` did NOT include it in the wheel.
+# In production (Docker, Kubernetes, systemd), the module_dir path
+# (e.g., /usr/lib/python3/site-packages/rl/) had NO
+# validated_hypotheses.csv, so the data flywheel (DOCX §10) was
+# non-functional — validated pairs received NO reward bonus, the RL
+# agent had no incentive to rank them HIGH, and the data flywheel moat
+# was non-functional.
+#
+# This MANIFEST.in entry ensures the file is included in both sdist
+# (pip install from source) and wheel (pip install from wheel) builds.
+# The runtime check in _load_validated_hypotheses() logs CRITICAL if
+# the file is still missing (e.g., if a deployment uses a custom
+# install path that bypasses MANIFEST.in).
+
+include README.md
+include LICENSE
+include requirements.txt
+recursive-include rl *.csv
+recursive-include rl *.py
+recursive-include graph_transformer *.py
+recursive-include phase1 *.py
+recursive-include phase2 *.py
+recursive-include tests *.py
+# v113 IN-051 ROOT FIX (LOW — Corrupted): the previous MANIFEST.in
+# included only *.py files from rl/graph_transformer/phase1/phase2/tests
+# but did NOT include *.yaml, *.json, *.md, *.txt data files. A
+# ``pip install .`` would produce a wheel missing critical data files:
+#   • phase2/drugos_graph/data/label_map.yaml (KG builder crashes)
+#   • phase1/data/uniprot_organism_crosswalk.yaml (entity resolution)
+#   • phase1/entity_resolution/schema/v1.json
+#   • phase2/data/registry.json
+#   • phase2/drugos_graph/data/label_dictionary.md
+#   • shared/ entirely (no recursive-include for shared/)
+# ROOT FIX: add recursive-include rules for all data file types AND
+# for the shared/ directory. Verified with ``python -m build`` (the
+# wheel now contains all data files).
+recursive-include phase1 *.yaml *.json *.md *.txt
+recursive-include phase2 *.yaml *.json *.md *.txt
+recursive-include graph_transformer *.yaml *.json *.md *.txt
+recursive-include rl *.yaml *.json *.md *.txt
+recursive-include shared *.py *.json *.yaml *.md
+recursive-include common *.py *.json *.yaml *.md

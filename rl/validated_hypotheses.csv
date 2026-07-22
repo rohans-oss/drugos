@@ -1,0 +1,11 @@
+drug,disease,outcome,validated_at,validated_by
+thalidomide,multiple myeloma,validated_positive,2024-01-15T10:00:00Z,pharma_partner_alpha
+sildenafil,pulmonary arterial hypertension,validated_positive,2024-01-15T10:00:00Z,pharma_partner_alpha
+mifepristone,cushing syndrome,validated_positive,2024-01-15T10:00:00Z,pharma_partner_alpha
+topiramate,migraine,validated_positive,2024-01-15T10:00:00Z,pharma_partner_alpha
+rofecoxib,cardiovascular disease,validated_toxic,2024-02-01T12:00:00Z,pharma_partner_beta
+cisapride,cardiovascular disease,validated_toxic,2024-02-01T12:00:00Z,pharma_partner_beta
+troglitazone,type 2 diabetes,validated_toxic,2024-02-01T12:00:00Z,pharma_partner_beta
+cerivastatin,cardiovascular disease,validated_toxic,2024-02-01T12:00:00Z,pharma_partner_beta
+terfenadine,cardiovascular disease,validated_toxic,2024-02-01T12:00:00Z,pharma_partner_beta
+aspirin,inflammation,validated_inconclusive,2024-03-01T14:00:00Z,pharma_partner_gamma

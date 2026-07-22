@@ -1,0 +1,26 @@
+# v91: ignore pipeline run outputs (they're regenerable)
+output_*/
+phase1/processed_data/
+*.pyc
+__pycache__/
+.pytest_cache/
+*.egg-info/
+# Don't commit build artifacts or local DBs
+frontend/.next/
+frontend/node_modules/
+frontend/dev.db
+frontend/prisma/*.db
+frontend/prisma/prisma/
+frontend/db/
+frontend/dev.log
+frontend/server.log
+.env.local
+# Pipeline-trained model checkpoints (regenerable, do not commit)
+checkpoints/
+output_v100/
+rl/output/
+.venv/
+graph_transformer/retrain_triggered.json
+
+# Environment Variables
+.env

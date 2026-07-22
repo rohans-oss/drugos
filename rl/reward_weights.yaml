@@ -1,0 +1,121 @@
+# P4-005 ROOT FIX (HIGH — Team Cosmic / Phase 4): Per-Tenant Reward Weights
+# =========================================================================
+# This file is the DEFAULT reward-weights profile for the RL Drug Ranker.
+# Pharma partners have different priorities (rare disease focus, safety
+# focus, market focus, etc.) and need different reward-weight profiles.
+# The previous code hardcoded all weights in RewardConfig — every partner
+# got the same ranking priorities. This file + the
+# load_reward_weights_for_tenant() function make the weights configurable
+# per-tenant WITHOUT code changes.
+#
+# Usage:
+#   - The DEFAULT profile (below) is loaded when no tenant_id is specified.
+#   - A tenant-specific profile is loaded from
+#     reward_weights.{tenant_id}.yaml (in the same directory) when
+#     tenant_id is specified. If the tenant file doesn't exist, the
+#     DEFAULT profile is used with a WARNING.
+#   - The load function validates that weights sum to 1.0 (±1e-6) and
+#     that the keys match FEATURE_COLS exactly.
+#
+# To create a new tenant profile:
+#   1. Copy this file to reward_weights.{tenant_id}.yaml
+#   2. Adjust the weights below (they MUST sum to 1.0)
+#   3. Run: python -m rl.rl_drug_ranker show-weights --tenant {tenant_id}
+#      to verify the profile loads correctly.
+#   4. Run: python -m rl.rl_drug_ranker set-weights --tenant {tenant_id}
+#      --weight rare_disease_flag=0.4 --weight safety_score=0.2 ...
+#      to update specific weights from the CLI.
+
+# Profile metadata
+profile_name: "default"
+profile_description: >
+  Default reward-weights profile for the RL Drug Ranker. Balanced across
+  scientific plausibility (gnn, pathway, efficacy), safety, market
+  opportunity, and unmet need. Suitable for general-purpose drug
+  repurposing. Pharma partners with specific focus areas (rare disease,
+  oncology, infectious disease) should create a tenant-specific profile.
+profile_version: "1.0"
+
+# Reward weights — MUST sum to 1.0 (±1e-6).
+# Each weight controls how much the corresponding feature contributes to
+# the RL agent's reward signal. Higher weight = the agent prioritizes
+# pairs with high values of that feature.
+reward_weights:
+  # Graph Transformer link-prediction score (Phase 3 output). Capped at
+  # 0.04 by RewardFunction._compute_effective_weights to prevent the RL
+  # agent from being a circular distillation of the GT model. Setting
+  # this higher in the YAML has NO EFFECT beyond 0.04 (the cap is a
+  # runtime invariant, not a config).
+  gnn_score: 0.04
+
+  # Drug safety profile (1=very safe, 0=dangerous). Below 0.5 = hard
+  # reject. The DOMINANT feature — a drug with terrible safety is
+  # worthless regardless of other features.
+  safety_score: 0.25
+
+  # Commercial opportunity score (disease pathway connectivity + orphan
+  # bonus). Higher = larger market or orphan-drug premium.
+  market_score: 0.12
+
+  # Phase 3 model confidence (1 - binary prediction entropy / log(2)).
+  # Higher = the GT model is more certain about the prediction.
+  confidence: 0.10
+
+  # Biological pathway validation strength (multi-hop drug->protein->
+  # pathway->disease path count). Higher = stronger mechanistic evidence.
+  pathway_score: 0.15
+
+  # Patent status (1=off-patent, BETTER repurposing target). Off-patent
+  # drugs are cheaper, have generic availability, and no IP blocking.
+  patent_score: 0.08
+
+  # Rare/orphan disease flag (1=rare, higher repurposing opportunity).
+  # Orphan drugs get premium pricing + 7-year market exclusivity.
+  rare_disease_flag: 0.08
+
+  # Unmet medical need (1=high, few existing treatments). Diseases with
+  # fewer existing treatments have higher unmet need.
+  unmet_need_score: 0.10
+
+  # Clinical efficacy signal (drug's known-treatment count). A drug
+  # already approved for many diseases has stronger clinical validation.
+  efficacy_score: 0.05
+
+  # ADME (Absorption, Distribution, Metabolism, Excretion) properties.
+  # Higher = better bioavailability / drug-likeness.
+  adme_score: 0.03
+
+  # Sum = 1.00
+
+# Example tenant profiles (NOT loaded by default — create separate files
+# named reward_weights.{tenant_id}.yaml to use them):
+#
+# --- RARE DISEASE PARTNER (reward_weights.rare_disease_partner.yaml) ---
+# profile_name: "rare_disease_partner"
+# reward_weights:
+#   gnn_score: 0.04
+#   safety_score: 0.20
+#   market_score: 0.08
+#   confidence: 0.08
+#   pathway_score: 0.12
+#   patent_score: 0.06
+#   rare_disease_flag: 0.25   # INCREASED from 0.08 — rare disease focus
+#   unmet_need_score: 0.12    # INCREASED from 0.10
+#   efficacy_score: 0.03
+#   adme_score: 0.02
+#   # Sum = 1.00
+#
+# --- SAFETY-FIRST PARTNER (reward_weights.safety_first.yaml) ---
+# profile_name: "safety_first_partner"
+# reward_weights:
+#   gnn_score: 0.04
+#   safety_score: 0.45       # INCREASED from 0.25 — safety focus
+#   market_score: 0.08
+#   confidence: 0.08
+#   pathway_score: 0.12
+#   patent_score: 0.05
+#   rare_disease_flag: 0.05
+#   unmet_need_score: 0.08
+#   efficacy_score: 0.03
+#   adme_score: 0.02
+#   # Sum = 1.00

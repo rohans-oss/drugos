@@ -1,0 +1,48 @@
+{
+  "string_edges": {
+    "version": "1.0.0",
+    "schema_version": "2.0.0",
+    "owner": "string_loader",
+    "produced_by": "drugos_graph.string_loader",
+    "produced_at": "2026-07-01T07:09:36Z",
+    "edge_count": 0,
+    "loaded": false,
+    "loaded_reason": "v109 ROOT FIX (P2-008 / P2-040): STRING PPI produced 0 edges. The previous code marked the source as 'loaded=true' even when edge_count=0, causing downstream code to believe STRING was loaded. The 'loaded' flag is now FALSE when edge_count=0. The Phase 2 pipeline gate (_check_v1_launch_criteria in run_pipeline.py) now HARD-FAILS the pipeline when any critical source has 0 edges. To fix the data: (1) run the STRING loader with real STRING data (the file 9606.protein.links.v12.0.txt.gz must be present in the configured STRING data dir); (2) if you have real data but still see 0 edges, lower the score threshold via DRUGOS_STRING_SCORE_THRESHOLD env var (default 700; lower to 400 for more edges at lower precision, or to 150 for a permissive dev-mode graph).",
+    "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "load_id": "84984ce64cf34dfaa92a0d1da5038f0f",
+    "node_type_counts": {},
+    "edge_type_counts": {
+      "(Protein, interacts_with, Protein)": 0
+    },
+    "v109_root_fix": {
+      "issue": "P2-008",
+      "fix": "loaded flag is now false when edge_count=0; pipeline gate hard-fails when any critical source has 0 edges",
+      "action_required": "Run STRING loader with real STRING data file or lower DRUGOS_STRING_SCORE_THRESHOLD"
+    }
+  },
+  "sider": {
+    "version": "2023-10-25",
+    "sha256": "119b2f5319a9398da83e5fe3419889010dbacf8d3eef590251b00c025e2b3f99",
+    "rows": 91926,
+    "loaded": true,
+    "parsed_at": "2026-07-03T07:18:43.455118Z",
+    "load_id": "sider_20260703T071835_2048afd1",
+    "schema_version": "2.0.0",
+    "parser_version": "1.0.0",
+    "node_type_counts": {
+      "MedDRA_Term": 91926
+    },
+    "edge_type_counts": {
+      "(Compound, causes_adverse_event, MedDRA_Term)": 91926
+    },
+    "node_type_note": "v109 ROOT FIX (P2-007): the previous registry reported SIDER nodes as 'AdverseEvent' and edges as '(Compound, causes, AdverseEvent)' — NEITHER matches the canonical schema in config_schema.py (canonical node type is 'MedDRA_Term', canonical edge type is '(Compound, causes_adverse_event, MedDRA_Term)'). The mismatch caused the SIDER subgraph to be SILENTLY DROPPED at the Phase 2->Phase 3 boundary because 'AdverseEvent' is not in PHASE2_TO_PHASE3_NODE. The fix: the SIDER loader (sider_loader.py) now emits canonical 'MedDRA_Term' node labels and 'causes_adverse_event' edge relations; this registry has been updated to reflect the canonical schema. The 91,926 row count is preserved — only the label/relation names changed.",
+    "v109_root_fix": {
+      "issue": "P2-007",
+      "fix": "canonical MedDRA_Term node type and causes_adverse_event edge relation (was: AdverseEvent / causes)",
+      "previous_node_type": "AdverseEvent",
+      "previous_edge_type": "(Compound, causes, AdverseEvent)",
+      "new_node_type": "MedDRA_Term",
+      "new_edge_type": "(Compound, causes_adverse_event, MedDRA_Term)"
+    }
+  }
+}

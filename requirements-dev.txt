@@ -1,0 +1,20 @@
+# P1-034 ROOT FIX: explicit dev/CI requirements.
+# The audit found that test_dag_structure.py used to pytest.importorskip(
+# 'airflow'), which SILENTLY SKIPPED all DAG structure validation when
+# airflow was not installed. This file pins the dev/CI dependencies so
+# CI environments install airflow and the tests actually run.
+#
+# Install with: pip install -r requirements-dev.txt
+# (This includes everything in requirements.txt plus dev-only deps.)
+
+-r requirements.txt
+
+# Dev / CI dependencies (NOT needed for production runtime).
+apache-airflow>=2.8.0  # P1-034: required for DAG structure tests
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.10.0
+# IN-075 ROOT FIX: removed `requests>=2.31.0` (already in requirements.txt
+# at line 19, which this file includes via `-r requirements.txt` above).
+# The duplicate entry was a version-drift code smell.
+responses>=0.24.0  # for mocking HTTP requests in tests

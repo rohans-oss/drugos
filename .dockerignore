@@ -1,0 +1,99 @@
+# BE-029 / IN-029 ROOT FIX (v115, MEDIUM): repo-root .dockerignore.
+#
+# ROOT CAUSE: the docker-compose.yml `frontend` service used
+# `build: { context: . , dockerfile: frontend/Dockerfile }`. The
+# build context `.` is the ENTIRE repo root — Docker sent the whole
+# 536K-LOC repo (plus output_v100/, checkpoints/, phase1/raw_data/,
+# phase1/processed_data/, .git/, node_modules/) to the daemon as a
+# build-context tarball. This was 100MB-1GB+ per build, slow on CI,
+# and exhausted Docker daemon memory on operators' machines.
+#
+# ROOT FIX: this .dockerignore excludes everything EXCEPT what the
+# Dockerfile actually COPYs. The frontend Dockerfile only COPYs:
+#   - frontend/package.json
+#   - frontend/package-lock.json
+#   - frontend/bun.lock (optional)
+#   - frontend/ (the source tree)
+# So we exclude everything else. Build context drops from ~1GB to
+# ~50MB (the frontend source + node_modules if present).
+#
+# Other Dockerfiles in this repo (Dockerfile.airflow, Dockerfile.ml,
+# phase2/drugos_graph/Dockerfile) also use `context: .` — they benefit
+# from this .dockerignore too. Each one only COPYs the directories
+# it needs (phase1/, phase2/, etc.).
+#
+# Generated artifacts that should NEVER be in a Docker build context:
+**/node_modules
+**/.next
+**/__pycache__
+**/output_v100
+**/output_v100/**
+**/checkpoints
+**/checkpoints/**
+**/raw_data
+**/raw_data/**
+**/processed_data
+**/processed_data/**
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/coverage
+**/coverage/**
+**/.nyc_output
+**/tests
+**/tests/**
+**/*.test.ts
+**/*.test.tsx
+**/*.test.js
+**/*.spec.ts
+**/*.spec.tsx
+**/*.spec.js
+
+# Version control — never needed inside a container.
+.git
+.gitignore
+.gitattributes
+.github
+.gitlab-ci.yml
+
+# IDE / editor config — never needed inside a container.
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation — never needed inside a container (Dockerfile COPYs
+# only source directories, not *.md files). The exception is the
+# repo-root README.md, which some Dockerfiles COPY for `LABEL
+# org.opencontainers.image.description`. We keep that one.
+*.md
+!README.md
+docs
+docs/**
+
+# Logs and runtime data — never needed inside a container.
+logs
+logs/**
+*.log
+*.log.*
+
+# Local env files — never needed inside a container (env vars are
+# passed via docker-compose `environment:`).
+.env
+.env.local
+.env.*.local
+*.env
+
+# Tooling configs that are not needed at build time.
+.editorconfig
+.eslintignore
+.prettierignore
+.prettierrc
+.stylelintrc
+.tsbuildinfo
+jest.config.js
+playwright.config.ts

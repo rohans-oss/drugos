@@ -1,0 +1,165 @@
+# Unified Autonomous Drug Repurposing Platform — Combined Requirements
+# ====================================================================
+# This file merges Phase 1 and Phase 2 dependencies. Install with:
+#   pip install -r requirements.txt
+#
+# For ARM64 (Apple Silicon, AWS Graviton): rdkit must be installed via
+# conda (conda install -c conda-forge rdkit) — pip wheels are x86_64 only.
+# The pipeline degrades gracefully without rdkit.
+#
+# v54 ROOT FIX (ROOT-5 — rdkit-pypi no wheel for Python 3.13+):
+# The `rdkit-pypi` package was deprecated in 2023 and has no wheels for
+# Python 3.13+. The official `rdkit` package (maintained by the RDKit
+# project) has wheels for all Python versions including 3.13.
+# ROOT FIX: use `rdkit` (official) instead of `rdkit-pypi` (deprecated).
+# The import name is the same (`from rdkit import Chem`), so no code
+# changes are needed.
+
+# ─── Phase 1: Data Ingestion & Pipeline Setup ──────────────────────────────
+requests>=2.31.0
+pandas>=2.1.4
+numpy>=1.26.3
+# v54 ROOT FIX (ROOT-5): use official `rdkit` package (has Python 3.13
+# wheels) instead of deprecated `rdkit-pypi` (no Python 3.13 wheels).
+# Both provide the same `rdkit` import — code is unchanged.
+#
+# Task 365 ROOT FIX: removed the `platform_machine=="x86_64"` marker.
+# The canonical `rdkit` package (maintained by the RDKit project)
+# ships multi-arch wheels — both x86_64 AND arm64 (Apple Silicon,
+# AWS Graviton). The previous marker prevented installation on arm64,
+# forcing developers on M1/M2 Macs to install rdkit via conda
+# separately. With the marker removed, `pip install -r requirements.txt`
+# works on both architectures. The pipeline degrades gracefully if
+# rdkit is somehow still unavailable (DRUGOS_ALLOW_NO_RDKIT=1).
+rdkit>=2024.3.1
+sqlalchemy>=2.0.25
+psycopg2-binary>=2.9.9
+lxml>=5.1.0
+rapidfuzz>=3.6.1
+python-dotenv>=1.0.0
+# FIX-C6: Airflow is a REAL dependency — phase1/dags/*.py (8 files) do
+# `from airflow.decorators import dag, task` at module top level. Without
+# apache-airflow installed, every DAG crashes at import time and
+# phase1/tests/test_dag_structure.py used to pytest.importorskip("airflow"),
+# silently SKIPPING all DAG structure validation. The Docker base image
+# (apache/airflow:2.10.5-python3.11) includes it for prod, but dev/CI envs
+# need it too.
+#
+# Task 364 ROOT FIX: the audit demanded pinning apache-airflow==2.10.5 in
+# requirements.txt to match the Dockerfile.airflow base image. We tried
+# THREE variations:
+#   (a) apache-airflow==2.10.5 + sqlalchemy==2.0.30 (Airflow's constraint)
+#   (b) apache-airflow==2.10.5 + sqlalchemy>=2.0.25 (loose)
+#   (c) apache-airflow>=2.10.0,<3.0.0 + sqlalchemy>=2.0.25 (major-version)
+# All three triggered pip ResolutionImpossible because Airflow 2.10.x's
+# transitive deps (provider packages like apache-airflow-providers-postgres
+# or the SQLAlchemy<2.0 pin in some 2.10.x provider) conflict with
+# sqlalchemy>=2.0.25 (which allows sqlalchemy 2.1+).
+#
+# ROOT FIX: keep the original `apache-airflow>=2.8.0` pin (which was
+# working on main before this PR) and rely on the CANONICAL production
+# pin in Dockerfile.airflow (apache/airflow:2.10.5-python3.11 base image).
+# The audit's concern was "no Airflow DAG is registered" — that's
+# addressed by the new Dockerfile.airflow + docker-compose service
+# (Tasks 356 + 357 + 369). The literal version pin in requirements.txt
+# is NOT required to satisfy the audit's concern; the production
+# version is enforced by the Dockerfile.
+#
+# Why not remove Airflow entirely? Because phase1/dags/*.py do
+# `from airflow.decorators import dag, task` at module top level, and
+# phase1/tests/test_dag_structure.py imports the DAGs. Without Airflow
+# installed, those tests skip (pytest.importorskip) and DAG structure
+# validation is silently disabled.
+apache-airflow>=2.8.0
+
+# ─── Phase 2: Knowledge Graph Construction ─────────────────────────────────
+neo4j>=5.0
+networkx>=3.0
+torch==2.2.2
+torch-geometric==2.5.3
+scikit-learn>=1.3
+transformers>=4.30
+mlflow>=2.0
+prometheus-client>=0.20
+pyyaml>=6.0
+certifi>=2024.0
+psutil>=5.9
+
+# ─── Bridge (Phase 1 → Phase 2) ─────────────────────────────────────────────
+# The bridge module (phase2/drugos_graph/phase1_bridge.py) has no
+# dependencies beyond pandas (already listed above). It is intentionally
+# lightweight so the bridge works in CI environments without torch/neo4j.
+
+# ─── Phase 3: Graph Transformer (link prediction on KG) ───────────────────
+# torch + scikit-learn are already declared in Phase 2 above and reused.
+# Phase 3 (graph_transformer/) only needs torch + sklearn + pandas + numpy,
+# all of which are already installed. No new deps required.
+
+# ─── Phase 4: RL Hypothesis Ranker ─────────────────────────────────────────
+# rl/rl_drug_ranker.py defines DrugRankingEnv(gym.Env) at class-definition
+# time, so gymnasium MUST be installed before the module can be imported
+# (it is NOT lazy-loaded — see B22 fix in rl_drug_ranker.py docstring).
+# stable-baselines3 is lazy-imported inside gt_rl_bridge / rl_drug_ranker
+# only when train_agent() is actually called, but we list it here so the
+# full RL pipeline can run end-to-end without a second pip install.
+gymnasium>=0.29
+stable-baselines3>=2.2
+# P4-012 ROOT FIX (Team Member 12): biopython is a MANDATORY production
+# dependency. rl/rl_drug_ranker.py::literature_crosscheck uses Bio.Entrez
+# to query PubMed for the V1 launch criterion "≥5 literature-supported
+# predictions" (DOCX §8). The previous code SILENTLY SKIPPED the
+# literature check when biopython was missing, marking all candidates
+# with literature_support=False and EXCLUDING the criterion from the
+# scientific_validation gate. The platform then claimed V1 readiness
+# without ever running the literature cross-check. The fix makes
+# biopython a hard requirement: if it is not installed, the
+# scientific_validation gate FAILS (not skips) and the pipeline refuses
+# to write its output CSV. biopython is also required by Phase 1
+# ChEMBL/UniProt pipelines (Bio.Seq, Bio.PDB) so it is not a new
+# transitive dependency.
+biopython>=1.83
+# IN-075 ROOT FIX: removed `pytest>=7.4` from requirements.txt. pytest
+# is a DEV dependency — it should NOT be in the production requirements
+# file. The previous entry here (`pytest>=7.4`) plus the entry in
+# requirements-dev.txt (`pytest>=7.4.0`) was a version-drift code smell
+# (pip resolves them as equivalent, but the inconsistency signals a
+# lack of dependency hygiene). pytest now lives ONLY in
+# requirements-dev.txt (which `-r requirements.txt`'s for dev installs).
+# If any production code path actually needs pytest (e.g., a runtime
+# test runner), add it explicitly with a comment explaining why.
+
+# ─── RT-005 ROOT FIX (Team Member 17) + Phase 6 V1 launch: Literature Cross-Check ──
+# The V1 launch contract (project docx Section 8) requires:
+#   "At least 5 top predictions are supported by published literature"
+# Phase 4's rl_drug_ranker.py performs an automated PubMed literature cross-check
+# via Bio.Entrez (NCBI E-utilities). The audit (RT-005) found biopython was NOT
+# declared in requirements.txt, so on a fresh install the literature cross-check
+# was SKIPPED (silently) — meaning the V1 launch gate passed WITHOUT actually
+# verifying the literature criterion. This is a fundamental V1 contract violation.
+# (only declared once — see above).
+
+# ─── RT-014 ROOT FIX (Team Member 17) + Step 1 integration plan: HTTP API layer ──
+# The project docx (Section 7) specifies FastAPI as the REST API framework.
+# The frontend's /api/dataset, /api/knowledge-graph, /api/rl routes proxy to
+# DATASET_SERVICE_URL, KG_SERVICE_URL, RL_SERVICE_URL — expecting FastAPI
+# HTTP services wrapping Phase 1/2/3/4. But fastapi/uvicorn were NOT in
+# requirements.txt, so there was no way to run any phase as an HTTP service.
+# The fix: declare fastapi + uvicorn so the standalone services can be built
+# and the frontend's proxy pattern actually works in production. This also
+# enables the new /api/predict and /api/top-k routes (RT-006) which wrap
+# the GT inference module via a FastAPI service.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.0
+# Chunk 8 ROOT FIX: rate limiting for all FastAPI services.
+# slowapi is a thin wrapper around limits that integrates with FastAPI.
+# Operators can tune RL_RATE_LIMIT, PHASE1_RATE_LIMIT, etc. via env vars.
+# Default: 100 req/min per IP (see rl/service.py).
+slowapi>=0.1.9
+
+# ─── RT-010 ROOT FIX (Team Member 17): Data Flywheel writeback ─────────────
+# The data flywheel (project docx Section 10) requires validated hypotheses
+# to be written back to Phase 1's database as new labeled data points. The
+# writeback modules use psycopg2-binary (already listed in Phase 1) for
+# PostgreSQL writes. No new dep required, but documenting the dependency
+# chain here for clarity.

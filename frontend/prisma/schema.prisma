@@ -1,0 +1,696 @@
+// DrugOS Backend Schema
+// PostgreSQL-backed persistence for users, organizations, projects, billing,
+// collaboration, evidence packages, audit logs, notifications, and API keys.
+//
+// PRODUCTION STORAGE: PostgreSQL (per project docx: "Storage: PostgreSQL + S3").
+// SQLite is forbidden in production because it lacks row-level locks, type
+// enforcement, and concurrent-write semantics required for a multi-tenant
+// pharma platform handling PHI/PII.
+//
+// NOTE: Knowledge graph nodes/edges, raw dataset tables, and RL model artifacts
+// are intentionally NOT modeled here — those are owned by the standalone ML
+// services (Neo4j graph, Airflow data pipeline, Stable-Baselines3 RL agent).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // FE-019 ROOT FIX: Switched from sqlite to postgresql. The project doc
+  // (Team_Cosmic_Build_Process_Updated.docx, Section 9 "Technology Stack")
+  // explicitly requires "Storage: PostgreSQL + S3". SQLite cannot enforce
+  // type constraints, doesn't support concurrent writes (single-writer lock),
+  // and has different concurrency semantics — production under load would
+  // corrupt.
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// BE-066 + BE-067 ROOT FIX: Enum definitions for DB-level role/status enforcement.
+//
+// The previous schema used free-form String fields for role, status, and
+// visibility columns. A raw SQL insert (e.g., via a migration gone wrong, or
+// a DBA with direct access) could set role="superuser" or status="" — values
+// that the application-level allowlists would not recognize, leading to
+// unpredictable authorization behavior.
+//
+// Root fix: Define PostgreSQL enums for all status/role/visibility fields.
+// This provides DB-level enforcement: any insert with an invalid enum value
+// fails at the database layer, before the application ever sees it.
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  researcher
+  data_scientist
+  pi
+  business_dev
+  developer
+  viewer
+  billing
+  admin
+  owner
+  // BE-002 ROOT FIX: a DISTINCT platform-level superuser role. The
+  // `owner` role is set by self-registration when a user creates an org
+  // (OrganizationMember.role=owner) AND by admin promotion (User.role=owner).
+  // The previous code granted User.role=owner SYSTEM-WIDE access — any user
+  // promoted to owner could enumerate every user in every org, suspend any
+  // user system-wide, and read every audit log across all tenants. A
+  // competitor could register, get promoted (or self-promote via a stale
+  // admin endpoint), and immediately read every pharma company's user list.
+  //
+  // Root fix: `platformOwner` is the ONLY role that bypasses org scoping.
+  // It is reserved for the SaaS operator's staff and can ONLY be set via
+  // direct DB access (no API route can grant it). The `owner` role now
+  // behaves like `admin` — org-scoped, no cross-tenant access.
+  //
+  // This is a NON-BREAKING schema change (new enum value). The Prisma
+  // migration is `ALTER TYPE "UserRole" ADD VALUE 'platformOwner';`.
+  // Existing `owner` users continue to work but are now org-scoped.
+  platformOwner
+}
+
+enum UserStatus {
+  active
+  suspended
+  pending_approval
+}
+
+// ---------------------------------------------------------------------------
+// TASK-261 / TASK-269 ROOT FIX: PlatformRole enum — a SEPARATE field from
+// UserRole that gates access to /api/admin/* (platform operator console).
+//
+// WHY A SEPARATE FIELD (not a new UserRole value):
+//   The previous architecture overloaded `UserRole` for two distinct concerns:
+//     (a) the user's FUNCTIONAL role inside their organization (researcher,
+//         pi, billing, admin, owner) — drives in-app RBAC and is granted
+//         via PATCH /api/admin/users by an existing admin.
+//     (b) the user's PLATFORM-OPERATOR status (SaaS staff who can suspend
+//         tenants, read cross-tenant audit logs, rotate platform secrets).
+//   Mixing these concerns meant `role === "owner"` was interpreted as
+//   "org owner" in some routes and "platform superuser" in others — the
+//   audit (Task 261) found that any user promoted to `owner` could
+//   enumerate every user in every org and read every audit log across
+//   all tenants. Even after the prior `platformOwner` enum-value patch,
+//   the coupling remained: an `admin` (functional role) could not be
+//   distinguished from a `platformOwner` (operator) at the JWT level,
+//   and the only way to grant platform access was to change `role` —
+//   which then changed the user's in-app permissions as a side effect.
+//
+//   The clean fix is a SEPARATE column. `role` keeps its existing meaning
+//   (functional, org-scoped). `platformRole` is the orthogonal operator
+//   flag: `none` (default) for every regular user, `admin` for SaaS
+//   operator staff. The two fields are independently grantable and
+//   independently revocable, which is the OWASP-recommended pattern for
+//   multi-tenant SaaS (see "Separation of Duties" in OWASP ASVS V1.2).
+//
+//   Only `platformRole === "admin"` can access /api/admin/* routes —
+//   enforced by the new `requirePlatformAdmin()` middleware in
+//   lib/auth/require-platform-admin.ts. The `role === "owner"` /
+//   `platformOwner` checks in api-helpers.ts are KEPT for backwards
+//   compatibility with org-scoped admin routes (/api/audit-logs,
+//   /api/team, /api/billing/*), but they NO LONGER grant access to
+//   /api/admin/* — that gate is exclusively on `platformRole`.
+//
+//   platformRole is settable ONLY via direct DB access by the SaaS
+//   operator (UPDATE "User" SET "platformRole" = 'admin' WHERE id = '...').
+//   No API route can grant it — the self-registration allowlist does
+//   not include it, and the PATCH /api/admin/users route rejects any
+//   attempt to set it (the Zod schema does not accept `platformRole`
+//   in the request body). This is fail-closed: the only way to become
+//   a platform admin is to already have DB access, which is the
+//   SaaS operator's staff.
+// ---------------------------------------------------------------------------
+enum PlatformRole {
+  // Default for every user — no platform-operator access.
+  none
+  // SaaS operator staff. Can access /api/admin/* (platform console),
+  // read cross-tenant audit logs, suspend tenants, rotate platform
+  // secrets. Settable ONLY via direct DB access.
+  admin
+}
+
+enum OrgMemberRole {
+  owner
+  admin
+  member
+  viewer
+  billing
+}
+
+enum ProjectVisibility {
+  private
+  org
+  public
+}
+
+enum ProjectStatus {
+  active
+  archived
+  completed
+  on_hold
+}
+
+enum HypothesisStatus {
+  draft
+  predicted
+  reviewing
+  validated
+  rejected
+  archived
+}
+
+enum SubscriptionStatus {
+  active
+  canceled
+  past_due
+  trialing
+}
+
+enum InvoiceStatus {
+  open
+  paid
+  void
+  uncollectible
+}
+
+// ---------------------------------------------------------------------------
+// AUTH & USERS
+// ---------------------------------------------------------------------------
+
+model User {
+  id                String        @id @default(cuid())
+  email             String        @unique
+  passwordHash      String
+  name              String?
+  // BE-066 ROOT FIX: role is now a Prisma enum (UserRole) instead of a
+  // free-form String. DB-level enforcement prevents invalid role values
+  // from being inserted via raw SQL or migration errors.
+  role              UserRole      @default(researcher)
+  // TASK-261 / TASK-269 ROOT FIX: platformRole is a SEPARATE field from
+  // role. It gates access to /api/admin/* (platform operator console).
+  // See the PlatformRole enum above for the full rationale. Default is
+  // `none` — every user starts without platform-operator access. The
+  // SaaS operator grants `admin` via direct DB access (no API route).
+  // The index supports fast lookups of all platform admins (e.g. for
+  // the "platform operators" view in the admin console).
+  platformRole      PlatformRole  @default(none)
+  title             String?       // e.g. "Principal Scientist"
+  bio               String?
+  // BE-066 ROOT FIX: status is now a Prisma enum (UserStatus) instead of
+  // a free-form String. DB-level enforcement prevents invalid status values.
+  status            UserStatus    @default(active)
+  mfaSecret         String?
+  mfaEnabled        Boolean       @default(false)
+  emailVerified     Boolean       @default(false)
+  academicVerified  Boolean       @default(false)
+  // FE-009 ROOT FIX: Brute-force protection. After 5 failed logins within
+  // the lockout window, the account is locked until `lockedUntil`. The
+  // `failedLoginCount` resets on successful login or when the lockout
+  // window expires.
+  failedLoginCount  Int           @default(0)
+  lockedUntil       DateTime?
+  // FE-033 ROOT FIX: TOTP replay protection. Stores the counter (30s
+  // window index) of the last successfully-used TOTP code. RFC 6238 §5.2
+  // recommends rejecting reused codes — without this, an attacker who
+  // phishes a single TOTP code can replay it within the ±30s window.
+  // verifyTotpWithReplayCheck rejects any code whose counter is <= this
+  // value. Null means no code has been used yet.
+  lastTotpCounter   BigInt?
+  // FE-055: Soft-delete timestamp. Null = active. Set when an admin
+  // deletes a user — the row is preserved for audit trails but login
+  // is refused. (Added by team-15 — login route references it.)
+  deletedAt         DateTime?
+  lastLoginAt       DateTime?
+  // BE-079 REAL ROOT FIX (v2): The prior BE-079 "fix" added a PATCH /api/auth/me
+  // endpoint that issued a new access token with the requested orgId — but it
+  // did NOT persist the orgId anywhere. When the access token expired (15 min),
+  // rotateRefreshToken (lib/auth/server.ts) issued a new access token WITHOUT
+  // orgId (it only passed userId/email/role to signAccessToken). The user lost
+  // their org context entirely — every org-scoped query returned 403. This
+  // affected ALL users after 15 minutes, not just those who switched orgs.
+  //
+  // Real root fix: persist `lastActiveOrgId` on the User row. Set it at login
+  // (from the first membership), update it when the user switches org via
+  // PATCH /api/auth/me, and READ it in rotateRefreshToken so the refreshed
+  // access token carries the correct orgId. This closes the 15-minute logout
+  // bug for all users.
+  lastActiveOrgId   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  organizationMemberships OrganizationMember[]
+  projects                Project[]
+  apiKeys                 ApiKey[]
+  auditLogs               AuditLog[]
+  notifications           Notification[]
+  evidencePackages        EvidencePackage[]
+  billingInvoices         BillingInvoice[]
+  refreshTokens           RefreshToken[]
+
+  @@index([status])
+  @@index([role])
+  // TASK-261: index on platformRole so the /api/admin/users route can
+  // quickly list all platform admins (SELECT * FROM "User" WHERE
+  // "platformRole" = 'admin') without a full table scan.
+  @@index([platformRole])
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  plan        String   @default("free") // free | researcher | team | enterprise
+  status      String   @default("active")
+  seats       Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members           OrganizationMember[]
+  projects          Project[]
+  apiKeys           ApiKey[]
+  billingInvoices   BillingInvoice[]
+  subscription      Subscription?
+
+  @@index([plan])
+  @@index([status])
+}
+
+model OrganizationMember {
+  id              String       @id @default(cuid())
+  userId          String
+  organizationId  String
+  // BE-067 ROOT FIX: role is now a Prisma enum (OrgMemberRole) instead of
+  // a free-form String. DB-level enforcement prevents invalid role values.
+  role            OrgMemberRole @default(member)
+  invitedBy       String?
+  joinedAt        DateTime     @default(now())
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  // BE-038 ROOT FIX (Team Member 12): composite index on
+  // (organizationId, joinedAt) so the /api/team route's
+  // `findMany({ orderBy: { joinedAt: "asc" } })` can use an index for
+  // the sort. The previous schema had only `@@index([organizationId])`
+  // — the sort on joinedAt forced a full in-memory sort on every page
+  // load. For an org with 10K members, that's a 10K-row sort per
+  // request. The composite index turns it into an index-range scan.
+  @@index([organizationId, joinedAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// FE-016 ROOT FIX: MFA challenge-token replay protection. Each MFA challenge
+// JWT now carries a random `jti` (JWT ID). /api/auth/2fa/login-verify
+// atomically inserts the jti here on first use; the unique constraint on
+// `jti` makes a second insert fail (Prisma P2002), which the verify route
+// treats as a replay attack and rejects with 401. Rows are garbage-collected
+// by a periodic job (or manually) once `expiresAt` has passed.
+model MfaChallenge {
+  id         String   @id @default(cuid())
+  jti        String   @unique // FE-016: single-use replay guard
+  userId     String
+  consumedAt DateTime @default(now())
+  expiresAt  DateTime // 1 min grace past the JWT's own expiry for clock skew
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// PROJECTS & COLLABORATION
+// ---------------------------------------------------------------------------
+
+model Project {
+  id              String       @id @default(cuid())
+  name            String
+  description     String?
+  // BE-067 ROOT FIX: status is now a Prisma enum (ProjectStatus) instead
+  // of a free-form String. DB-level enforcement prevents invalid values.
+  status          ProjectStatus @default(active)
+  // BE-067 ROOT FIX: visibility is now a Prisma enum (ProjectVisibility)
+  // instead of a free-form String. DB-level enforcement prevents invalid
+  // visibility values (e.g., accidental "pubic" typo → DB rejects).
+  visibility      ProjectVisibility @default(private)
+  ownerId         String
+  organizationId  String
+  tags            String       @default("") // comma-separated
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  owner           User           @relation(fields: [ownerId], references: [id])
+  organization    Organization   @relation(fields: [organizationId], references: [id])
+  hypotheses      Hypothesis[]
+  comments        Comment[]
+  activities      ProjectActivity[]
+  evidencePackages EvidencePackage[]
+
+  // FE-018 ROOT FIX: Missing index on organizationId — every org-scoped
+  // project list query was a full table scan.
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([status])
+}
+
+model Hypothesis {
+  id            String   @id @default(cuid())
+  projectId     String
+  title         String
+  drugName      String
+  diseaseName   String
+  // FE-010 ROOT FIX: status enum tightened. RL model predictions are stored
+  // with status="predicted" (NOT "validated" — a "validated" hypothesis in
+  // pharma means wet-lab or clinical confirmation, which a model output is
+  // NOT). The rlPredicted boolean below distinguishes RL-sourced hypotheses
+  // from human-created ones at query time.
+  // BE-067 ROOT FIX: status is now a Prisma enum (HypothesisStatus) instead
+  // of a free-form String. DB-level enforcement prevents invalid values.
+  status        HypothesisStatus @default(draft)
+  // FE-010 ROOT FIX: true when this hypothesis was created or last updated
+  // by the RL ranker (via /api/rl persistRlCandidates). Lets researchers
+  // filter "RL predictions" vs "human-curated hypotheses" vs "validated by
+  // wet-lab" — three distinct categories that were previously conflated.
+  rlPredicted   Boolean  @default(false)
+  // The three scores managed by the standalone RL agent — we store the
+  // most recent values for display, but the RL agent is the source of truth.
+  plausibilityScore  Float?
+  safetyScore        Float?
+  marketScore        Float?
+  overallScore       Float?
+  // FE-002: RL ranker output fields (persisted by rl-ranker service).
+  rank               Int?
+  policyProb         Float?
+  reward             Float?
+  gnnScore           Float?
+  literatureSupport  Boolean?
+  rlModelVersion     String?
+  rlUpdatedAt        DateTime?
+  notes        String?
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  evidencePackages EvidencePackage[]
+
+  // FE-018 ROOT FIX: Missing index on projectId.
+  // FE-010: index on rlPredicted so "show me RL predictions" queries don't
+  // full-scan the Hypothesis table.
+  @@index([projectId])
+  @@index([drugName])
+  @@index([diseaseName])
+  @@index([status])
+  @@index([rlPredicted])
+  // BE-028 ROOT FIX (Team Member 12): composite unique constraint on
+  // (projectId, drugName, diseaseName) so persistRlCandidates can use
+  // db.hypothesis.upsert() instead of findFirst+update/create (N+1
+  // pattern that did 100 DB round-trips per /api/rl request at 60
+  // req/min = 6000 queries/min — exhausted the DB connection pool).
+  // The unique constraint enables `upsert` via the
+  // `projectId_drugName_diseaseName` compound key. Migration required.
+  @@unique([projectId, drugName, diseaseName])
+}
+
+model Comment {
+  id         String   @id @default(cuid())
+  projectId  String
+  userId     String?
+  authorName String
+  body       String
+  createdAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // FE-018 ROOT FIX: Missing index on projectId.
+  @@index([projectId])
+  @@index([createdAt])
+}
+
+model ProjectActivity {
+  id         String   @id @default(cuid())
+  projectId  String
+  type       String   // hypothesis_created | status_changed | comment_added | file_uploaded
+  actorName  String
+  summary    String
+  createdAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // FE-018 ROOT FIX: Missing index on projectId.
+  @@index([projectId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// BILLING
+// ---------------------------------------------------------------------------
+
+model Subscription {
+  id              String       @id @default(cuid())
+  organizationId  String       @unique
+  plan            String       @default("free")
+  // BE-067 ROOT FIX: status is now a Prisma enum (SubscriptionStatus)
+  // instead of a free-form String. DB-level enforcement prevents invalid
+  // subscription status values.
+  status          SubscriptionStatus @default(active)
+  seats           Int          @default(1)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean   @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+}
+
+model BillingInvoice {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String?
+  number          String   @unique
+  amountCents     Int
+  currency        String   @default("usd")
+  // BE-067 ROOT FIX: status is now a Prisma enum (InvoiceStatus) instead
+  // of a free-form String. DB-level enforcement prevents invalid invoice
+  // status values.
+  status          InvoiceStatus @default(open)
+  periodStart     DateTime
+  periodEnd       DateTime
+  dueDate         DateTime
+  pdfUrl          String?
+  createdAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User?         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+// ---------------------------------------------------------------------------
+// EVIDENCE PACKAGES
+// ---------------------------------------------------------------------------
+
+model EvidencePackage {
+  id            String   @id @default(cuid())
+  projectId     String?
+  hypothesisId  String?
+  userId        String?
+  drugName      String
+  diseaseName   String
+  title         String
+  summary       String
+  payloadJson   String   // serialized bundle: literature, trials, safety signals
+  pdfPath       String?
+  status        String   @default("draft") // draft | generated | published
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project    Project?    @relation(fields: [projectId], references: [id])
+  hypothesis Hypothesis? @relation(fields: [hypothesisId], references: [id])
+  user       User?       @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([drugName])
+  @@index([diseaseName])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// API KEYS (Developer platform)
+// ---------------------------------------------------------------------------
+
+model ApiKey {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String
+  name            String
+  hashedKey       String   @unique // FE-018: enforced unique + indexed
+  prefix          String   // FE-038: 8 hex chars AFTER the "drugos_" marker, shown in UI for identification
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  // FE-018 ROOT FIX: missing indexes added for org/user/revokedAt lookups.
+  @@index([organizationId])
+  @@index([userId])
+  @@index([revokedAt])
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS & AUDIT
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // info | success | warning | error
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([readAt])
+}
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  userId          String?
+  // FE-040 ROOT FIX: organizationId is required for multi-tenant audit-trail
+  // isolation. The previous schema had only userId + actorName — meaning
+  // audit logs could not be scoped to an org for query purposes, a user
+  // who was a member of multiple orgs had their actions conflated across
+  // orgs, and GDPR/CCPA data-subject-access-requests could not be scoped
+  // to a specific org. The field is nullable ONLY for system-level events
+  // (e.g. failed-login on a non-existent email) that are not tied to any
+  // org. All user-initiated writes populate it from the authenticated
+  // user's orgId via writeAuditLog.
+  organizationId  String?
+  actorName       String
+  action          String   // login | logout | hypothesis_create | billing_change | admin_action
+  resource        String?
+  ip              String?
+  userAgent       String?
+  metadata        String   @default("{}") // JSON string
+  createdAt       DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  // FE-018 ROOT FIX: Missing index on createdAt — audit log queries by
+  // time range were full table scans.
+  @@index([createdAt])
+  // FE-040 ROOT FIX: index on organizationId for per-org audit-log queries
+  // (compliance reporting, DSARs, multi-tenant scoping).
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// BE-003 ROOT FIX: AuditLogDeadLetter — model the dead-letter table that
+// writeAuditLog falls back to when the primary AuditLog insert fails.
+//
+// Previously, writeAuditLog used raw SQL ($executeRaw) to CREATE TABLE IF
+// NOT EXISTS audit_log_dead_letter and INSERT into it. This had THREE bugs:
+//   1. The table was NOT modeled in Prisma — no Prisma model could query
+//      it, so operators could not retrieve the lost entries via the
+//      application layer. The dead-letter rows were invisible.
+//   2. The DDL ran on EVERY non-critical audit failure — a performance
+//      drag (PostgreSQL parses + plans the CREATE TABLE on every call,
+//      even when the table already exists).
+//   3. If the DB was the failure cause (connection lost), BOTH the
+//      primary insert AND the fallback failed — the fallback's catch
+//      block logged to stderr but the request continued, silently
+//      losing the audit entry. FDA 21 CFR Part 11 requires complete
+//      audit trails — missing entries are a compliance violation.
+//
+// Root fix: model AuditLogDeadLetter as a first-class Prisma model. The
+// writeAuditLog fallback now uses `db.auditLogDeadLetter.create()` which
+// is type-safe, queryable from the application layer, and does not
+// require a DDL on every call. Operators can monitor the dead-letter
+// row count via /api/admin/audit-logs?dead_letter=true and alert when
+// it grows (indicating a systemic AuditLog write failure).
+//
+// NOTE: a Prisma migration is required to add this table to existing
+// deployments. Run `npx prisma migrate dev --name add_audit_log_dead_letter`
+// after deploying this change. The migration is additive (new table only)
+// so it does not conflict with existing data.
+// ---------------------------------------------------------------------------
+model AuditLogDeadLetter {
+  id         String   @id @default(cuid())
+  // The action that was attempted (e.g. "logout", "billing_change").
+  action     String
+  // The resource string from the attempted audit log entry.
+  resource   String?
+  // The userId of the actor (nullable for system events).
+  userId     String?
+  // The actor's email or "anonymous" — matches AuditLog.actorName.
+  actorName  String
+  // The JSON metadata blob from the attempted entry.
+  metadata   String   @default("{}")
+  // The error message that caused the primary insert to fail.
+  error      String
+  // Whether this was a critical audit log (critical:true passed to
+  // writeAuditLog). Critical entries that ended up in the dead-letter
+  // are a compliance emergency — they SHOULD have aborted the request
+  // but the dead-letter fallback ran anyway (only happens when the
+  // critical-write itself failed, which is a different code path).
+  critical   Boolean  @default(false)
+  // The organizationId of the actor (nullable for system events).
+  organizationId String?
+  createdAt  DateTime @default(now())
+
+  @@index([action])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([critical])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// WEBHOOKS
+// ---------------------------------------------------------------------------
+// BE-069 ROOT FIX: The WebhookEndpoint model and the entire webhook
+// infrastructure (including lib/crypto.ts) have been REMOVED. There was
+// NO `/api/webhooks` route — the model was dead code. The WebhooksScreen
+// UI rendered hardcoded fake webhooks. The lib/crypto.ts module (for
+// AES-256-GCM encryption of webhook secrets) existed but was never called.
+//
+// A customer paying for "webhook notifications" (a Team plan feature)
+// would get nothing — the infrastructure was non-functional.
+//
+// Root fix: Remove the model and the crypto module. When webhooks are
+// added to the roadmap, they should be implemented as a COMPLETE feature:
+//   1. CRUD /api/webhooks routes
+//  2. Webhook delivery service with retry logic
+//   3. UI for managing endpoints
+//   4. Encrypted secret storage (lib/crypto.ts or a proper KMS)
+//
+// NOTE TO FUTURE DEVELOPERS: If adding webhooks, create a NEW migration
+// that adds the WebhookEndpoint table back. Do NOT reuse this removed
+// model without the full feature implementation.
+//
+// REMOVED: model WebhookEndpoint { ... }
+// REMOVED: frontend/src/lib/crypto.ts (see git history to restore)

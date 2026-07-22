@@ -1,0 +1,9 @@
+{
+  "v109_root_fix": {
+    "issue": "P2-013",
+    "fix": "previous file was 0 bytes (empty). The pipeline has never completed successfully in the audited environment. This placeholder records the known-empty state and the action required to populate it.",
+    "action_required": "Run `python -m drugos_graph.run_pipeline` with real Phase 1 data present in phase1/processed_data/. The pipeline will write real results here on successful completion.",
+    "status": "never_completed",
+    "produced_at": null
+  }
+}

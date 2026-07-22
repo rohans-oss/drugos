@@ -1,0 +1,67 @@
+# v75 ROOT FIX (T-027 — mlflow service re-installs mlflow on every start):
+# The v74 mlflow service used ``image: python:3.11-slim`` and ran
+# ``pip install mlflow psycopg2-binary`` in the ``command:`` field. This
+# re-installed mlflow on EVERY ``docker-compose up`` (30-60s wait), and
+# required network access at start time. ROOT FIX: bake mlflow +
+# psycopg2-binary into a custom image so the container starts in ~1s
+# with no network dependency.
+#
+# IN-009 v113 ROOT FIX (MLflow no auth -> remote unauthenticated RCE):
+# The previous Dockerfile did NOT install `mlflow[auth]` extras, did not
+# set `MLFLOW_AUTH_CONFIG_PATH`, and did not enable `--app-name basic-auth`.
+# Combined with port 5000 exposed to the host, this was a remote
+# unauthenticated RCE vector (attacker registers a malicious pickle model;
+# phase3-trainer loads it on next restart -> code execution).
+# ROOT FIX:
+#   1. Install `mlflow[auth]` extras (adds auth middleware deps).
+#   2. Copy the auth config template + entrypoint script into the image.
+#   3. The entrypoint generates the real auth config from
+#      MLFLOW_ADMIN_PASSWORD at startup (sha256-hashed), then starts
+#      `mlflow server --app-name basic-auth` so every endpoint requires
+#      HTTP Basic Auth.
+#   4. docker-compose removes the host port binding (5000 is reachable
+#      only inside the compose network, not from the host).
+#
+# The image is tagged ``drugos-mlflow:latest`` by docker-compose's
+# ``build:`` directive.
+FROM python:3.11-slim
+
+# Install build deps for psycopg2-binary (binary wheel — usually no
+# compile needed, but install libpq just in case the wheel falls back
+# to source build on an architecture without a pre-built wheel).
+# Also install postgresql-client (for the entrypoint's psql DB-creation
+# step) and curl (for the healthcheck).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pin mlflow to a stable version. Install `mlflow[auth]` extras so the
+# `--app-name basic-auth` flag works (it requires `flask` auth middleware
+# that's not in the base `mlflow` package).
+RUN pip install --no-cache-dir \
+    "mlflow[auth]==2.15.1" \
+    "psycopg2-binary==2.9.9" \
+    "gunicorn==22.0.0"
+
+# Default MLflow port. The healthcheck in docker-compose.yml hits
+# ``/health`` on this port. Note: as of IN-009 v113, port 5000 is NOT
+# bound to the host in docker-compose.yml -- it's reachable only inside
+# the compose network.
+EXPOSE 5000
+
+# MLflow artifact root inside the container. Mapped to the
+# ``mlflow_data`` volume in docker-compose.yml.
+RUN mkdir -p /mlruns /opt/mlflow
+VOLUME ["/mlruns"]
+
+# Copy the auth config template and entrypoint script.
+COPY docker/mlflow_auth_config.yaml /opt/mlflow/mlflow_auth_config.yaml
+COPY docker/mlflow-entrypoint.sh /opt/mlflow/mlflow-entrypoint.sh
+RUN chmod +x /opt/mlflow/mlflow-entrypoint.sh
+
+# Run the entrypoint (generates auth config from env vars, starts mlflow
+# with --app-name basic-auth). docker-compose.yml overrides the command
+# to pass POSTGRES_USER / POSTGRES_PASSWORD / MLFLOW_ADMIN_PASSWORD.
+ENTRYPOINT ["/opt/mlflow/mlflow-entrypoint.sh"]

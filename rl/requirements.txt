@@ -1,0 +1,15 @@
+# Phase 4: RL Hypothesis Ranker
+# ==============================
+# R-035 root fix: this file did not exist. Phase 4 deps were only listed
+# in the top-level requirements.txt, inconsistent with Phase 1/2 which
+# have their own requirements.txt. rl/rl_drug_ranker.py defines
+# DrugRankingEnv(gym.Env) at class-definition time, so gymnasium MUST be
+# installed before the module can be imported. stable-baselines3 is
+# lazy-imported inside the ranker only when train_agent() is actually
+# called.
+gymnasium>=0.29
+stable-baselines3>=2.2
+pandas>=2.1.4
+numpy>=1.26.3
+torch>=2.0
+scikit-learn>=1.3

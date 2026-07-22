@@ -1,0 +1,1 @@
+{"v109_root_fix": "P2-016: previous file had 909 entries all showing ImportError 'attempted relative import beyond top-level package'. The phase1_bridge.py import paths have been fixed (see v109 commit). This file is now empty — new fallback events will be appended here when they occur.", "archived_to": "v109_archived/bridge_fallbacks.jsonl.v108_pre_fix"}

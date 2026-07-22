@@ -1,0 +1,21 @@
+:81 {
+        # V100 ROOT FIX (BUG #13, P0 CRITICAL): the previous Caddyfile
+        # contained an `@transform_port_query` handler that matched
+        # `?XTransformPort=<port>` and reverse-proxied to
+        # `localhost:{query.XTransformPort}` with NO authentication, NO
+        # allowlist, NO port range check. This was a textbook SSRF/open-proxy
+        # — an attacker could talk to ANY localhost service (PostgreSQL on
+        # 5432, Redis on 6379, SSH on 22, internal admin on 8080).
+        #
+        # Root fix: the entire `@transform_port_query` handler is DELETED.
+        # All requests now go to the Next.js app on :3000 only.
+
+        handle {
+                reverse_proxy localhost:3000 {
+                        header_up Host {host}
+                        header_up X-Forwarded-For {remote_host}
+                        header_up X-Forwarded-Proto {scheme}
+                        header_up X-Real-IP {remote_host}
+                }
+        }
+}

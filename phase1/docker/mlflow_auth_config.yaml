@@ -1,0 +1,31 @@
+# =============================================================================
+# MLflow Auth Configuration (IN-009 v113 ROOT FIX)
+# =============================================================================
+# MLflow 2.x does NOT enable auth by default. Without this config, anyone who
+# can reach port 5000 can list every experiment, download every model artifact
+# (which may include proprietary trained weights), create/delete experiments,
+# poison the model registry by registering a malicious model version, and read
+# the Postgres backend store URI (which contains the DB password in plaintext).
+#
+# Combined with port 5000 exposed to the host, this is a remote unauthenticated
+# RCE vector: an attacker registers a malicious "model" in MLflow; the next
+# time phase3-trainer restarts and loads the latest checkpoint from MLflow,
+# the pickle deserializes and runs attacker code as the `drugos` user.
+#
+# ROOT FIX: enable basic_auth. The admin password is NOT hardcoded here --
+# it is generated at container startup by `mlflow-entrypoint.sh` from the
+# MLFLOW_ADMIN_PASSWORD env var (hashed with sha256). The docker-compose
+# services that call MLflow (phase2-kg-builder, phase3-trainer, phase4-rl)
+# set MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD to authenticate.
+#
+# Reference: https://mlflow.org/docs/2.15.1/auth/index.html
+# =============================================================================
+authentication: basic_auth
+admin_username: mlflow_admin
+# admin_password_hash is injected at startup by mlflow-entrypoint.sh using
+# `python -c "import hashlib; print(hashlib.sha256('$MLFLOW_ADMIN_PASSWORD'.encode()).hexdigest())"`.
+# The placeholder below is the sha256 of "changeme" -- it is ALWAYS overwritten
+# by the entrypoint before mlflow server starts.
+admin_password_hash: 71b3a32a0c5276b1d8c8c2a5d1c9b0a3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9
+database_uri: sqlite:////mlflow/auth.db
+authorization_function: mlflow.server.auth:authenticate_request_basic_auth

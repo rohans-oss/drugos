@@ -1,0 +1,24 @@
+:81 {
+        # FE-007 ROOT FIX: The dynamic port-query reverse-proxy handler has
+        # been REMOVED entirely. The previous code matched a query parameter
+        # specifying a port number and reverse-proxied to localhost on that
+        # port with NO authentication, NO allowlist, NO port range check.
+        # That is a textbook SSRF / open-proxy vulnerability — an attacker
+        # could hit localhost:5432 (PostgreSQL), localhost:6379 (Redis),
+        # localhost:22 (SSH), etc.
+        #
+        # There is NO legitimate reason for an edge proxy to dynamically
+        # route to arbitrary localhost ports based on a query parameter.
+        # If you need port-based routing for dev tooling, define each route
+        # explicitly with authentication in front of it. Do NOT bring this
+        # handler back.
+
+        handle {
+                reverse_proxy localhost:3000 {
+                        header_up Host {host}
+                        header_up X-Forwarded-For {remote_host}
+                        header_up X-Forwarded-Proto {scheme}
+                        header_up X-Real-IP {remote_host}
+                }
+        }
+}

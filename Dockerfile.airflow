@@ -1,0 +1,78 @@
+# =============================================================================
+# Dockerfile.airflow — Apache Airflow 2.10.5 for Phase 1 ETL scheduling
+# =============================================================================
+# Task 369 ROOT FIX: requirements.txt pins ``apache-airflow==2.10.5`` but
+# the only Airflow Dockerfile in the repo was at ``phase1/docker/Dockerfile.airflow``
+# (referenced by ``phase1/docker-compose.yml``, a SEPARATE dev-only compose
+# file). The top-level ``docker-compose.yml`` (the V1 launch compose file
+# per Task 357) had no Airflow service at all, and there was no top-level
+# Dockerfile.airflow for it to reference.
+#
+# This Dockerfile builds the production Airflow image used by the
+# ``phase1-airflow`` service in the top-level docker-compose.yml. It is a
+# thin wrapper around phase1/docker/Dockerfile.airflow that:
+#   1. Mounts the Phase 1 DAGs at /opt/airflow/dags (via docker-compose
+#      volume mount, not baked in — keeps the image rebuildable when
+#      DAGs change without rebuilding the image).
+#   2. Pins to apache/airflow:2.10.5-python3.11 (matches requirements.txt
+#      pin — see phase1/docker/Dockerfile.airflow for the CVE rationale).
+#   3. Installs the Phase 1 requirements so DAGs can import
+#      ``pipelines.*`` and ``database.loaders.*`` at runtime.
+#
+# Build context: repo root (so we can COPY phase1/requirements.txt).
+# =============================================================================
+FROM apache/airflow:2.10.5-python3.11
+
+USER root
+
+# System deps: libpq-dev for psycopg2 source build (binary wheel works
+# on x86_64 but not always on arm64), postgresql-client for the
+# airflow-init entrypoint which runs `psql` to create the airflow DB.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+USER airflow
+
+# Copy Phase 1 requirements.txt and install. We use the phase1-specific
+# requirements file (not the top-level requirements.txt) because the
+# top-level file pins torch + PyG + RDKit which are NOT needed by the
+# Airflow scheduler (it only orchestrates Phase 1 ETL — the heavy ML
+# deps are installed in the phase3-trainer / phase4-rl images).
+COPY --chown=airflow:airflow phase1/requirements.txt /tmp/phase1_requirements.txt
+RUN pip install --no-cache-dir -r /tmp/phase1_requirements.txt
+
+# Copy Phase 1 source so DAGs can import `pipelines.*` and `database.*`.
+# The docker-compose service ALSO mounts ./phase1 as a volume, so this
+# COPY is a fallback for `docker run` invocations that don't use the
+# compose file.
+COPY --chown=airflow:airflow phase1/ /opt/phase1/
+
+# Airflow env vars. The docker-compose service overrides these with the
+# real Postgres connection string.
+ENV AIRFLOW__CORE__EXECUTOR=LocalExecutor \
+    AIRFLOW__CORE__LOAD_EXAMPLES=False \
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True \
+    PYTHONPATH=/opt/airflow:/opt/phase1:${PYTHONPATH}
+
+# IN-077 ROOT FIX: Fernet key validation entrypoint.
+# The docker-compose.yml passes
+# ``AIRFLOW__CORE__FERNET_KEY: "dev_fernet_key_replace_in_production"``
+# which is NOT a valid Fernet key. Airflow would crash at startup with
+# ``cryptography.fernet.InvalidToken`` (good — visible failure) OR
+# silently fall back to plaintext Connection storage (bad — invisible
+# failure). This entrypoint script validates the Fernet key BEFORE
+# starting the scheduler and fails fast with a clear error message
+# including the command to generate a valid key.
+COPY --chown=airflow:airflow Dockerfile.airflow.entrypoint.sh /opt/airflow/airflow-entrypoint.sh
+RUN chmod +x /opt/airflow/airflow-entrypoint.sh
+
+# Default command — the docker-compose service overrides this to run
+# `airflow scheduler` (the webserver is optional for V1 since the
+# platform's UI is the Next.js frontend, not Airflow's own UI).
+# IN-077: the entrypoint validates the Fernet key BEFORE exec'ing the
+# command, so an invalid key fails fast with a clear error.
+ENTRYPOINT ["/opt/airflow/airflow-entrypoint.sh"]
+CMD ["airflow", "scheduler"]

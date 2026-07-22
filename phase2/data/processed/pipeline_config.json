@@ -1,0 +1,37 @@
+{
+  "run_id": "20260712_044335_078bb194",
+  "dump_timestamp": "2026-07-12T04:43:35.414768+00:00",
+  "argv": [
+    "--yes"
+  ],
+  "versions": {
+    "package": "2.0.0",
+    "pipeline": "2.0.0-week2",
+    "config": "2.0.0",
+    "schema": "2.0.0"
+  },
+  "config_hash": "3a2db2e3825fe98e",
+  "seed": 42,
+  "key_thresholds": {
+    "MIN_NODES_W2": 500000,
+    "MIN_EDGES_W2": 6000000,
+    "MIN_POSITIVE_PAIRS": 15000,
+    "MIN_NEGATIVE_PAIRS": 75000,
+    "TARGET_TRANSE_AUC": 0.85,
+    "V1_LAUNCH_AUC": 0.85,
+    "STRING_SCORE_THRESHOLD": 700,
+    "STITCH_SCORE_THRESHOLD": 700
+  },
+  "paths": {
+    "PROJECT_ROOT": "/home/z/my-project/repo/autonomous-drug-repurposing/phase2",
+    "RAW_DIR": "/home/z/my-project/repo/autonomous-drug-repurposing/phase2/data/raw",
+    "PROCESSED_DIR": "/home/z/my-project/repo/autonomous-drug-repurposing/phase2/data/processed",
+    "LOGS_DIR": "/home/z/my-project/repo/autonomous-drug-repurposing/phase2/logs",
+    "MODEL_DIR": "/home/z/my-project/repo/autonomous-drug-repurposing/phase2/models"
+  },
+  "v109_root_fix": {
+    "issue": "P2-014",
+    "fix": "removed PYTEST_CURRENT_TEST contamination; the file was previously written during a pytest session, not a real pipeline run",
+    "note": "real pipeline runs will overwrite this file on next successful execution"
+  }
+}
