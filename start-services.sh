@@ -15,10 +15,13 @@ done
 
 # 2. Start PostgreSQL Container & Run Database Migrations
 echo "[1/6] Starting PostgreSQL Database & Pushing Schema..."
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/drugos?schema=public"
 docker stop drugos-postgres 2>/dev/null || true
 docker rm drugos-postgres 2>/dev/null || true
 docker run -d --name drugos-postgres -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=drugos postgres:15-alpine || true
-sleep 4
+sleep 5
+echo "DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/drugos?schema=public\"" > frontend/.env
+echo "JWT_SECRET=\"drugos-super-secret-jwt-key-2026-production-32bytes\"" >> frontend/.env
 (cd frontend && npx prisma db push --skip-generate) || true
 
 # 3. Start Python ML Microservices
