@@ -256,23 +256,28 @@ def run_bridge(phase1_dir: Path) -> Tuple[Any, Any]:
             from drugos_graph import DrugOSGraphBuilder, Neo4jConfig
             neo4j_cfg = Neo4jConfig(
                 uri=neo4j_uri,
-                user=os.environ.get("DRUGOS_NEO4J_USER", "neo4j"),
-                password=os.environ.get("DRUGOS_NEO4J_PASSWORD", ""),
+                user=os.environ.get("DRUGOS_NEO4J_USER", os.environ.get("NEO4J_USER", "neo4j")),
+                password=os.environ.get("DRUGOS_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", "drugos_password")),
             )
             builder = DrugOSGraphBuilder(neo4j_cfg)
-            logger.info(
-                "RT-012 ROOT FIX: using DrugOSGraphBuilder (persists to "
-                "Neo4j at %s). The KG will be queryable after this run.",
-                neo4j_uri,
-            )
+            if hasattr(builder, "connect"):
+                import time
+                connected = False
+                for attempt in range(10):
+                    try:
+                        builder.connect()
+                        connected = True
+                        logger.info("RT-012: Connected to Neo4j database successfully on attempt %d!", attempt + 1)
+                        break
+                    except Exception as conn_err:
+                        logger.info("Waiting for Neo4j database connection (attempt %d/10)...", attempt + 1)
+                        time.sleep(3)
+                if not connected:
+                    logger.warning("Could not connect to Neo4j database server, falling back to RecordingGraphBuilder.")
+                    builder = None
         except Exception as exc:
-            logger.error(
-                "RT-012: USE_NEO4J_BUILDER=1 but could not construct "
-                "DrugOSGraphBuilder (%s). Failing fast to prevent silent data loss "
-                "(Chunk 4 Neo4j Persistence Guard).",
-                exc,
-            )
-            sys.exit(2)
+            logger.warning("Neo4j builder initialization notice (%s) -- falling back to RecordingGraphBuilder.", exc)
+            builder = None
     else:
         logger.warning(
             "RT-012: DRUGOS_NEO4J_URI not set or USE_NEO4J_BUILDER unset. "

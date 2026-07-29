@@ -54,8 +54,8 @@ python3 -c "
 from transformers import AutoTokenizer, AutoModel
 try:
     print('Downloading ChemBERTa weights from Hugging Face...')
-    AutoTokenizer.from_pretrained('ChemBERTa/ChemBERTa-zinc-base-v1')
-    AutoModel.from_pretrained('ChemBERTa/ChemBERTa-zinc-base-v1')
+    AutoTokenizer.from_pretrained('seyonec/ChemBERTa-zinc-base-v1')
+    AutoModel.from_pretrained('seyonec/ChemBERTa-zinc-base-v1')
     print('ChemBERTa weights loaded successfully!')
 except Exception as e:
     print('HuggingFace cache notice:', e)
