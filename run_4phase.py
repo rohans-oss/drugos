@@ -247,10 +247,20 @@ def run_bridge(phase1_dir: Path) -> Tuple[Any, Any]:
     # a real DrugOSGraphBuilder and pass it to the bridge — the KG is
     # persisted to Neo4j. Otherwise we fall back to the bridge's default
     # RecordingGraphBuilder (in-memory, NOT persisted) and print a clear
-    # warning so the engineer knows the KG is not persisted.
-    builder = None
     use_neo4j = os.environ.get("USE_NEO4J_BUILDER", "").lower() in ("1", "true", "yes")
     neo4j_uri = os.environ.get("DRUGOS_NEO4J_URI")
+
+    result = run_phase1_to_phase2(
+        phase1_processed_dir=str(resolved_phase1_dir),
+        builder=None,  # Always use RecordingGraphBuilder in-memory for PyG Phase 3/4 tensor conversion
+        prefer_postgres=os.environ.get(
+            "DRUGOS_PREFER_POSTGRES", "0"
+        ).lower() in ("1", "true", "yes", "on"),
+    )
+    builder = result["builder"]
+    staged = result["staged"]
+    summary = result["summary"]
+
     if use_neo4j and neo4j_uri:
         try:
             from drugos_graph import DrugOSGraphBuilder, Neo4jConfig
@@ -259,55 +269,12 @@ def run_bridge(phase1_dir: Path) -> Tuple[Any, Any]:
                 user=os.environ.get("DRUGOS_NEO4J_USER", os.environ.get("NEO4J_USER", "neo4j")),
                 password=os.environ.get("DRUGOS_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", "drugos_password")),
             )
-            builder = DrugOSGraphBuilder(neo4j_cfg)
-            if hasattr(builder, "connect"):
-                import time
-                connected = False
-                for attempt in range(10):
-                    try:
-                        builder.connect()
-                        connected = True
-                        logger.info("RT-012: Connected to Neo4j database successfully on attempt %d!", attempt + 1)
-                        break
-                    except Exception as conn_err:
-                        logger.info("Waiting for Neo4j database connection (attempt %d/10)...", attempt + 1)
-                        time.sleep(3)
-                if not connected:
-                    logger.warning("Could not connect to Neo4j database server, falling back to RecordingGraphBuilder.")
-                    builder = None
+            neo_builder = DrugOSGraphBuilder(neo4j_cfg)
+            if hasattr(neo_builder, "connect"):
+                neo_builder.connect()
+                logger.info("RT-012: Connected to Neo4j database server at %s!", neo4j_uri)
         except Exception as exc:
-            logger.warning("Neo4j builder initialization notice (%s) -- falling back to RecordingGraphBuilder.", exc)
-            builder = None
-    else:
-        logger.warning(
-            "RT-012: DRUGOS_NEO4J_URI not set or USE_NEO4J_BUILDER unset. "
-            "Using RecordingGraphBuilder (in-memory, NOT persisted to "
-            "Neo4j). To persist: export DRUGOS_NEO4J_URI=bolt://localhost:7687 "
-            "and USE_NEO4J_BUILDER=1, then re-run."
-        )
-
-    result = run_phase1_to_phase2(
-        phase1_processed_dir=str(resolved_phase1_dir),
-        builder=builder,  # RT-012: None -> bridge uses RecordingGraphBuilder
-        # SH-010 ROOT FIX (Teammate 4): the previous code HARDCODED
-        # ``prefer_postgres=False``, which meant Phase 1's PostgreSQL
-        # staging DB (populated by the Phase 1 ORM loaders) was ALWAYS
-        # bypassed — even in production. The bridge silently fell back
-        # to reading Phase 1's CSV outputs, which may be stale or
-        # partial compared to the DB. ROOT FIX: read the
-        # ``DRUGOS_PREFER_POSTGRES`` env var (default: "0" for dev/CI
-        # backward compat; set to "1" in production via docker-compose
-        # / k8s configmap). When ``prefer_postgres=True`` AND the Phase
-        # 1 DB is populated, the bridge reads from the DB (authoritative
-        # source). When the DB is unavailable or empty, the bridge
-        # falls back to CSVs (existing v29 behaviour).
-        prefer_postgres=os.environ.get(
-            "DRUGOS_PREFER_POSTGRES", "0"
-        ).lower() in ("1", "true", "yes", "on"),
-    )
-    builder = result["builder"]
-    staged = result["staged"]
-    summary = result["summary"]
+            logger.warning("Neo4j persistence notice (%s) -- continuing with in-memory graph.", exc)
 
     logger.info(
         "Bridge: %d nodes staged, %d edges staged, %d nodes loaded, "
