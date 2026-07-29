@@ -1053,7 +1053,7 @@ function CandidateDetailScreen() {
     };
   }, [candidateId, allAvailableCandidates]);
 
-  const disease = useMemo(() => {
+  const disease = useMemo((): Disease => {
     return diseases.find(d => d.id === candidate.diseaseId || d.name === candidate.diseaseName) || {
       id: 'D001',
       name: candidate.diseaseName || "Alzheimer's Disease",
@@ -1061,6 +1061,8 @@ function CandidateDetailScreen() {
       description: 'Progressive neurodegenerative disorder impacting memory, cognition, and pathobiology.',
       therapeuticArea: 'Neurology',
       prevalence: '6.5M US Patients',
+      meshTerm: 'D002318',
+      geneticBasis: 'Polygenic',
     };
   }, [candidate]);
 
