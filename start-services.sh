@@ -7,9 +7,10 @@ set -e
 
 echo "=== DrugOS: Starting all services on AWS Ubuntu ==="
 
-# 1. Kill stale processes on ports
-for port in 3000 8001 8002 8003 8004 5432; do
+# 1. Kill stale processes on ports & open local firewall
+for port in 3000 7474 7687 8001 8002 8003 8004 5432; do
   fuser -k ${port}/tcp 2>/dev/null || true
+  sudo ufw allow ${port}/tcp 2>/dev/null || true
 done
 
 # 2. Start Embedded PostgreSQL
