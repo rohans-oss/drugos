@@ -19,10 +19,19 @@ export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/drugos?schema
 docker stop drugos-postgres 2>/dev/null || true
 docker rm drugos-postgres 2>/dev/null || true
 docker run -d --name drugos-postgres -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=drugos postgres:15-alpine || true
-sleep 5
+
+mkdir -p frontend
 echo "DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/drugos?schema=public\"" > frontend/.env
 echo "JWT_SECRET=\"drugos-super-secret-jwt-key-2026-production-32bytes\"" >> frontend/.env
-(cd frontend && npx prisma db push --skip-generate) || true
+
+echo "Waiting for PostgreSQL to start on port 5432..."
+for i in {1..20}; do
+  if (cd frontend && npx prisma db push --skip-generate 2>/dev/null); then
+    echo "✅ PostgreSQL is ready & schema pushed successfully!"
+    break
+  fi
+  sleep 1
+done
 
 # 3. Start Python ML Microservices
 echo "[2/6] Starting Phase 1 Dataset service on port 8001..."
