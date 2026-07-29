@@ -34,11 +34,12 @@ nohup python3 -m uvicorn rl.service:app --host 0.0.0.0 --port 8004 > logs_phase4
 sleep 4
 
 # 4. Start Next.js Frontend Dashboard
-echo "[6/6] Building and Starting Next.js Production Web Server on port 3000..."
+echo "[6/6] Starting Next.js Web Server on port 3000..."
 cd frontend
+export NODE_OPTIONS="--max-old-space-size=2048"
+export NEXT_TELEMETRY_DISABLED=1
 npm install --legacy-peer-deps
-npm run build || true
-nohup npm run start -- -p 3000 -H 0.0.0.0 > ../logs_frontend.log 2>&1 &
+nohup npx next dev -p 3000 -H 0.0.0.0 > ../logs_frontend.log 2>&1 &
 
 echo "=================================================================="
 echo "  ✅ All DrugOS Services are running live in the background!"
