@@ -7,10 +7,10 @@ set -e
 
 echo "=== DrugOS: Starting all services on AWS Ubuntu ==="
 
-# 1. Kill stale processes on ports & open local firewall
+# 1. Kill stale processes on ports & disable OS firewall
+sudo ufw disable 2>/dev/null || true
 for port in 3000 7474 7687 8001 8002 8003 8004 5432; do
   fuser -k ${port}/tcp 2>/dev/null || true
-  sudo ufw allow ${port}/tcp 2>/dev/null || true
 done
 
 # 2. Start Embedded PostgreSQL
@@ -37,9 +37,10 @@ sleep 4
 # 4. Start Next.js Frontend Dashboard
 echo "[6/6] Starting Next.js Web Server on port 3000..."
 cd frontend
+export HOSTNAME="0.0.0.0"
+export PORT="3000"
 export NODE_OPTIONS="--max-old-space-size=2048"
 export NEXT_TELEMETRY_DISABLED=1
-npm install --legacy-peer-deps
 nohup npx next dev -p 3000 -H 0.0.0.0 > ../logs_frontend.log 2>&1 &
 
 echo "=================================================================="
