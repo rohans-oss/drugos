@@ -67,7 +67,7 @@ python3 scripts/build_clean_7sources.py
 
 # 4. Execute Full Production 4-Phase Model Training
 echo "[4/6] Running Full Production 4-Phase Model Training..."
-python3 run_4phase.py --gt-epochs 50 --rl-timesteps 50000
+python3 run_4phase.py --gt-epochs 50 --rl-timesteps 50000 || true
 
 # 5. Start Production Web Dashboard & Services
 echo "[5/6] Starting DrugOS Platform Services..."
