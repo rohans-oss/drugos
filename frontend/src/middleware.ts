@@ -82,7 +82,6 @@ export function middleware(_req: NextRequest) {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "upgrade-insecure-requests",
   ].join("; ");
 
   res.headers.set("Content-Security-Policy", csp);
@@ -92,12 +91,6 @@ export function middleware(_req: NextRequest) {
   res.headers.set(
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(), payment=()"
-  );
-  // HSTS — only meaningful over HTTPS, but the header is harmless on HTTP
-  // (browsers ignore it). 1 year + preload + subdomains.
-  res.headers.set(
-    "Strict-Transport-Security",
-    "max-age=31536000; includeSubDomains; preload"
   );
 
   return res;
