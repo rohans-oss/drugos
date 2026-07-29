@@ -86,9 +86,9 @@ def ensure_existing_5_sources():
 
     # F. PubChem Enrichment
     pubchem_df = pd.DataFrame([
-        {"chembl_id": "CHEMBL521", "inchikey": "HEFNNWSXXWATIW-UHFFFAOYSA-N", "pubchem_cid": 3672, "smiles": "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O", "molecular_weight": 206.28, "xlogp": 3.5, "tpsa": 37.3},
-        {"chembl_id": "CHEMBL25", "inchikey": "BSYNRYMUTXBXSQ-UHFFFAOYSA-N", "pubchem_cid": 2244, "smiles": "CC(=O)OC1=CC=CC=C1C(=O)O", "molecular_weight": 180.16, "xlogp": 1.2, "tpsa": 63.6},
-        {"chembl_id": "CHEMBL1431", "inchikey": "XZLBUTOGGKNXEG-UHFFFAOYSA-N", "pubchem_cid": 4091, "smiles": "CN(C)C(=N)NC(=N)N", "molecular_weight": 129.16, "xlogp": -1.4, "tpsa": 89.2},
+        {"chembl_id": "CHEMBL521", "inchikey": "HEFNNWSXXWATIW-UHFFFAOYSA-N", "pubchem_cid": 3672, "smiles": "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O", "canonical_smiles": "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O", "molecular_weight": 206.28, "xlogp": 3.5, "tpsa": 37.3},
+        {"chembl_id": "CHEMBL25", "inchikey": "BSYNRYMUTXBXSQ-UHFFFAOYSA-N", "pubchem_cid": 2244, "smiles": "CC(=O)OC1=CC=CC=C1C(=O)O", "canonical_smiles": "CC(=O)OC1=CC=CC=C1C(=O)O", "molecular_weight": 180.16, "xlogp": 1.2, "tpsa": 63.6},
+        {"chembl_id": "CHEMBL1431", "inchikey": "XZLBUTOGGKNXEG-UHFFFAOYSA-N", "pubchem_cid": 4091, "smiles": "CN(C)C(=N)NC(=N)N", "canonical_smiles": "CN(C)C(=N)NC(=N)N", "molecular_weight": 129.16, "xlogp": -1.4, "tpsa": 89.2},
     ])
     pubchem_df.to_csv(PROCESSED_DIR / "pubchem_enrichment.csv", index=False)
 
