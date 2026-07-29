@@ -234,6 +234,15 @@ export async function POST(req: NextRequest) {
     ? (requestedRole as AllowedSelfRegRole)
     : "researcher";
 
+  // FE-016 REAL ROOT FIX: Convert hyphen-form role identifiers to the
+  // underscore-form that the Prisma UserRole enum actually uses.
+  // ALLOWED_ROLES_SELF_REG uses hyphens ("data-scientist", "business-dev")
+  // for URL-friendliness, but the Prisma enum values are underscore-form
+  // ("data_scientist", "business_dev"). The previous fix only cast the type
+  // (line 303) which silenced TypeScript but Prisma validates the actual
+  // string at runtime → PrismaClientValidationError / 500 on registration.
+  const prismaRole = role.replace(/-/g, "_") as unknown as UserRole;
+
   const passwordHash = await hashPassword(password);
 
   // FE-036 ROOT FIX: TOCTOU race on email uniqueness.
@@ -288,19 +297,10 @@ export async function POST(req: NextRequest) {
           email,
           passwordHash,
           name,
-          // FE-016 ROOT FIX (Team Member 15, v108 — pre-existing build blocker):
-          // The `role` value comes from ALLOWED_ROLES_SELF_REG which uses
-          // hyphen-form identifiers ("data-scientist", "business-dev") for
-          // URL-friendliness. The Prisma UserRole enum uses underscore-form
-          // ("data_scientist", "business_dev"). The TypeScript error
-          // "Type '"data-scientist"' is not assignable to type 'UserRole'"
-          // blocked `next build`. Cast to UserRole to unblock the build —
-          // the underlying hyphen-vs-underscore mismatch is a real bug that
-          // should be fixed by a separate commit (it would require
-          // migrating existing DB rows and updating ALLOWED_ROLES_SELF_REG
-          // / ALLOWED_ROLES_ADMIN to use underscores, plus updating every
-          // RBAC check that compares against these strings).
-          role: role as unknown as UserRole,
+          // FE-016 REAL ROOT FIX: use prismaRole which has already been
+          // converted from hyphen-form ("business-dev") to underscore-form
+          // ("business_dev") that Prisma's UserRole enum expects.
+          role: prismaRole,
           title,
           bio,
           // FE-035: emailVerified starts false. The user must click the

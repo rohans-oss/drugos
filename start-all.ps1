@@ -29,10 +29,16 @@ Write-Host "  Cleared stale processes." -ForegroundColor Gray
 
 # --- Start embedded PostgreSQL (for auth DB) ---
 Write-Host "  [1/6] Starting embedded PostgreSQL..." -ForegroundColor Yellow
+$pidFile = Join-Path $FRONTEND ".postgres-data\postmaster.pid"
+if (Test-Path $pidFile) { Remove-Item -Path $pidFile -Force -ErrorAction SilentlyContinue }
 Start-Process -FilePath "node" -ArgumentList "scripts/start-db.mjs" `
     -WorkingDirectory $FRONTEND -WindowStyle Hidden
 
-Start-Sleep -Seconds 4
+# --- Prepare & Clean All 7 Biomedical Data Sources ---
+Write-Host "  Preparing 7 data sources (OpenFDA, Open Targets, ChEMBL, UniProt, STRING, DisGeNET, PubChem)..." -ForegroundColor Yellow
+& $PYTHON "scripts/build_clean_7sources.py"
+
+Start-Sleep -Seconds 2
 
 # --- Start Python ML services ---
 Write-Host "  [2/6] Starting Phase 1 Dataset service on port 8001..." -ForegroundColor Yellow
