@@ -19,6 +19,7 @@ echo "=================================================================="
 
 export DRUGOS_ENVIRONMENT="production"
 export DRUGOS_DOWNLOAD_MODE="full"
+export ENTREZ_EMAIL="researcher@drugos.ai"
 export RL_SKIP_LITERATURE="0"
 
 # 1. Install Docker & Neo4j Database Server if not running
