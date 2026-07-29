@@ -1746,9 +1746,7 @@ class GraphConnection:
             )
         session_kwargs = {"database": self.config.database}
         session_kwargs.update(kwargs)
-        # Fixes S(9)-5: Query timeout
-        if "default_timeout" not in session_kwargs:
-            session_kwargs["default_timeout"] = self._query_timeout
+        session_kwargs.pop("default_timeout", None)
         session = self._driver.session(**session_kwargs)
         try:
             yield session
@@ -3789,9 +3787,7 @@ class GraphJanitor:
 
         # Fixes R-5: Chunked deletion for large graphs
         chunk_size = 10000
-        with self._conn.session(
-            default_timeout=max(_QUERY_TIMEOUT, 600),
-        ) as session:
+        with self._conn.session() as session:
             while True:
                 result = session.run(
                     "MATCH (n) WITH n LIMIT $limit "
