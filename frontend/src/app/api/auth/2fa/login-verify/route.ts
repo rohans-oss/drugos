@@ -461,7 +461,7 @@ async function clearMfaChallengeCookie(): Promise<void> {
     const store = await cookies();
     store.set("drugos_mfa_challenge", "", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: process.env.COOKIE_SECURE === "true",
       sameSite: "strict",
       path: "/api/auth/2fa",
       maxAge: 0, // delete

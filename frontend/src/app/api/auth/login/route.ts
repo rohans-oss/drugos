@@ -332,7 +332,7 @@ export async function POST(req: NextRequest) {
     // making the MFA flow resilient to endpoint reorganization.
     loginStore.set("drugos_mfa_challenge", mfaToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: process.env.COOKIE_SECURE === "true",
       sameSite: "strict",
       path: "/api/auth/2fa",
       maxAge: 5 * 60, // 5 minutes — matches MFA_CHALLENGE_TTL_SECONDS

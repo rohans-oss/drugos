@@ -451,22 +451,23 @@ export function issueCsrfToken(): string {
 export async function setCsrfCookie(token: string): Promise<void> {
   const { cookies } = await import("next/headers");
   const store = await cookies();
-  const isProd = process.env.NODE_ENV === "production";
+  const isSecure = process.env.COOKIE_SECURE === "true";
   store.set(CSRF_COOKIE_NAME, token, {
-    httpOnly: false, // the client MUST read this to copy into the header
-    secure: isProd,
-    sameSite: "lax", // not strict — we want top-level navigations to keep the cookie
+    httpOnly: false,
+    secure: isSecure,
+    sameSite: "lax",
     path: "/",
-    maxAge: 30 * 24 * 60 * 60, // 30 days — matches REFRESH_TOKEN_TTL_DAYS
+    maxAge: 30 * 24 * 60 * 60,
   });
 }
 
 export async function clearCsrfCookie(): Promise<void> {
   const { cookies } = await import("next/headers");
   const store = await cookies();
+  const isSecure = process.env.COOKIE_SECURE === "true";
   store.set(CSRF_COOKIE_NAME, "", {
     httpOnly: false,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecure,
     sameSite: "lax",
     path: "/",
     maxAge: 0,
