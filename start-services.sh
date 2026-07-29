@@ -18,6 +18,13 @@ echo "[1/6] Starting PostgreSQL Database & Pushing Schema..."
 export DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/drugos?schema=public"
 echo "DATABASE_URL=\"postgresql://postgres:postgres@127.0.0.1:5432/drugos?schema=public\"" > frontend/.env
 echo "JWT_SECRET=\"drugos-super-secret-jwt-key-2026-production-32bytes\"" >> frontend/.env
+echo "KG_SERVICE_URL=\"http://127.0.0.1:8002\"" >> frontend/.env
+echo "PHASE1_SERVICE_URL=\"http://127.0.0.1:8001\"" >> frontend/.env
+echo "PHASE2_SERVICE_URL=\"http://127.0.0.1:8002\"" >> frontend/.env
+echo "PHASE3_SERVICE_URL=\"http://127.0.0.1:8003\"" >> frontend/.env
+echo "PHASE4_SERVICE_URL=\"http://127.0.0.1:8004\"" >> frontend/.env
+echo "GT_SERVICE_URL=\"http://127.0.0.1:8003\"" >> frontend/.env
+echo "RL_SERVICE_URL=\"http://127.0.0.1:8004\"" >> frontend/.env
 
 sudo systemctl start docker 2>/dev/null || true
 sudo docker stop drugos-postgres 2>/dev/null || true
