@@ -68,9 +68,7 @@ export function middleware(_req: NextRequest) {
     // In dev mode, Next.js Fast Refresh injects inline scripts without nonces.
     // Since nonces disable 'unsafe-inline', we remove the nonce locally.
     // In production, we strictly enforce the nonce.
-    isDev 
-      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" 
-      : `script-src 'self' 'nonce-${nonce}' 'unsafe-inline'`,
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
     // React UI components heavily use inline styles (e.g., style={{ width }}).
     // If a nonce is present, modern browsers ignore 'unsafe-inline'.
     // Removing the nonce here allows legitimate inline component bounds.
