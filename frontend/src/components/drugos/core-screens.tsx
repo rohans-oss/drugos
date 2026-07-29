@@ -1062,7 +1062,7 @@ function CandidateDetailScreen() {
       therapeuticArea: 'Neurology',
       prevalence: '6.5M US Patients',
       meshTerm: 'D002318',
-      geneticBasis: 'Polygenic',
+      geneticBasis: true,
     };
   }, [candidate]);
 
