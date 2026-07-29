@@ -19,7 +19,7 @@ export DRUGOS_DOWNLOAD_MODE="full"
 export RL_SKIP_LITERATURE="0"
 
 echo "[1/4] Installing system dependencies and Python packages..."
-sudo apt-get update && sudo apt-get install -y build-essential git python3-pip python3-venv postgresql-client
+sudo apt-get install -y build-essential git python3-pip python3-venv postgresql-client 2>/dev/null || true
 python3 -m pip install --break-system-packages --upgrade pip || true
 pip cache purge 2>/dev/null || true
 pip install --no-cache-dir --break-system-packages torch --index-url https://download.pytorch.org/whl/cpu || true
